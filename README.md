@@ -30,7 +30,8 @@ I built a production-ready ETL: read movie IDs from CSV, fetch facts from TMDB, 
 └── README.md
 ```
 
----
+
+
 
 ## How I approached it
 
@@ -43,7 +44,9 @@ GET https://api.themoviedb.org/3/movie/634649?language=en-US
 
 **Configuration & client.** I load `TMDB_API_KEY` from `.env` and fail fast if it’s missing. `TMDBClient` wraps a single `requests.Session`, uses a 10-second timeout, and retries up to 3 times with exponential backoff + jitter. I retry 429/5xx/network errors; I treat 404 as terminal and log it.
 
----
+
+
+
 
 ## Clean input → clean output (ETL mapping)
 
@@ -74,7 +77,6 @@ GET https://api.themoviedb.org/3/movie/634649?language=en-US
   * API failures: `[id, "fetch-failed", ""]`
   * Input skips: `[raw, reason, row]`
 
----
 
 ## Orchestration & performance
 
@@ -85,13 +87,13 @@ GET https://api.themoviedb.org/3/movie/634649?language=en-US
 
 Why threads over `asyncio`? For straight HTTP I/O at this size, threads are simpler, easier to test, and “fast enough.” If quotas tighten, I’d add a token-bucket limiter on top.
 
----
+
 
 ## Example
 
 ID `634649` → “Spider-Man: No Way Home,” vote average 7.94, genres “Action, Adventure, Science Fiction.” The row is emphasized (bold+red) because “Action” is present. Flow: **raw API → stable model → simple business rule → formatted report**.
 
----
+
 
 ## Rationale & Impact
 
@@ -113,10 +115,8 @@ Net effect: **faster runs, fewer manual touches, cheaper retries, and clear acco
 * **Rate limiting:** I currently rely on capped workers + backoff; I would add a token bucket if TMDB quotas tighten.
 * **Metadata:** I included core columns in Excel; I could easily add `imdb_id`, `release_date`, or `runtime` if needed.
 
----
 
 
----
 
 ## Testing
 
@@ -128,7 +128,7 @@ I use `pytest` with mocks—no real network or API key required.
 * Excel formatting (action highlight) and atomic write behavior
 * DLQ content (API failures + input skips)
 
----
+
 
 ## How I’d run this on Azure
 
@@ -146,9 +146,14 @@ I’d keep the code thin, observable, and idempotent.
 * **Schema drift**: version raw JSON; keep mapper tolerant; promote new columns intentionally.
 * **Monitoring**: App Insights + ADF run history; alerts on spikes or Service Level Agreement (SLA) risk.
 
-**Why ADF + Functions instead of using Logic Apps?:** ADF gives data-pipeline ergonomics (lineage, parameters, re-runs). Functions give precise control of HTTP and throttling. Logic Apps are great for notifications (e.g., emailing a SAS link) but not the data plane here.
+**Why ADF + Functions instead of Logic Apps?** ADF provides data pipeline ergonomics with lineage, parameters, and re-runs. Functions offer precise control over HTTP handling and throttling. Logic Apps excel at notifications but aren't suited for data plane processing.
 
----
+
+## What if we had millions of IDs and not just a couple hundred?
+For millions of IDs, I'd stop thinking "single script" and move to partitioned, orchestrated fan-out/fan-in. Inputs land in ADLS Gen2 as sharded batches, and Azure Data Factory or Durable Functions fans them out to workers via Service Bus with backpressure. I'd enforce a global distributed rate limit using a token bucket in Redis so all workers respect TMDB quotas, and switch the fetcher to async I/O with bounded concurrency. I'd also add conditional fetch/caching so re-runs skip unchanged records. This drives batch sizing, SLA expectations, and whether to request higher quotas.
+
+
+
 
 ## Runbook
 
@@ -172,4 +177,4 @@ python -m src.movie_report_pipeline                 # expects movies.csv with he
 
 * `movie_data.xlsx` — formatted, deterministic report
 * `dead_letter_queue.csv` — API failures + input skips with reasons
----
+
